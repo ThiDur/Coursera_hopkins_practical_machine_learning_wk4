@@ -1,0 +1,133 @@
+---
+output:
+  html_document: default
+  pdf_document: default
+---
+
+# Executive summary
+
+In this project an algorithm is made to predict if a barbell lift is performed correctly. Participants perform the lift in in one correct way and 5 different incorrect ways while being monitored by accelerometers on their belt, forearm, arm and dumbell. The data is used to train a random forest algorithm with PCA input components. The algorithm based on 29 input compontents and 128 trees was shown to be most accurate with 0.97% of classes identified correctly.
+
+# Introduction
+A random forest algorithm is used to predict the way a barbell lift is performed (correctly or either of the 5 incorrect ways). As random forests are prune to overfitting a test set is used to evaluate the performance of the random forest. To reduce the effect of overfitting an PCA is used on the input variables. The random forest algorithm is tested on 20, 23, 26 and 29 components (that cover 91% - 98% of the total variance) and with 64 and 128 trees (as suggested in https://www.researchgate.net/publication/230766603_How_Many_Trees_in_a_Random_Forest).
+
+# Data preparation and assumptions
+
+```{r setting environment, echo=FALSE, warning=FALSE, message=FALSE}
+library(dplyr)
+library(caret)
+rm(list=ls())
+set.seed(42)
+```
+
+Two datasets were loaded: pml-training.csv and pml-testing.csv.
+```{r load data}
+df <- read.csv('pml-training.csv')
+df_evaluate  <- read.csv('pml-testing.csv')
+```
+
+It was seen in pml-testing (renamed df_evaluate) that there were a lot of columns containing only NA data. These columns were filtered along with the context columns (column 1-7). Meanwhile the training data was split 70-30 in training data and test data.
+```{r}
+col_names <- colnames(df_evaluate)
+ind <- 1
+indices <- c()
+for (name in col_names){
+    if (length(which(is.na(df_evaluate[name]))) == 20){
+        indices <- c(indices, ind)
+        
+    }
+    ind <- ind + 1
+}
+
+inTrain <- createDataPartition(y=df$classe, p=0.7, list=FALSE)
+df_train <- df[inTrain, -indices]
+df_test <- df[-inTrain, -indices]
+df_evaluate <- df_evaluate[, -indices]
+
+df_train <- df_train[, 8:dim(df_train)[2]]
+df_test <- df_test[, 8:dim(df_test)[2]]
+df_evaluate <- df_evaluate[, 8:dim(df_evaluate)[2]]
+```
+
+For the test data a PCA was done to determine the cumulative proportion of variance the PCA compontents contain. It can be seen that upwards of 23 components over 95% of the variance in the data was explained.
+```{r}
+df_train.pca <- prcomp(df_train[, 9:dim(df_train)[2]-1], center = TRUE, scale = TRUE)
+summary(df_train.pca)$importance[2, ]
+```
+It is known that random forest models are prune to overfitting. To control overfitting different numbers of PCA components and trees are tried in an iterative loop.
+```{r, cache=TRUE}
+n_best <- 0
+ntrees_best <- 0
+ncomps_best <- 0
+fit_best <- NULL
+res <- NULL
+for (ntrees in c(64, 128)){
+    for (ncomps in seq(20, 30, by=3)) {
+        print(paste(
+            'working on rf model with ',
+            ntrees,
+            ' trees based on ',
+            ncomps,
+            ' input components'
+            ))
+        pre_process <- preProcess(
+            df_train[, -dim(df_train)[2]-1],
+            method='pca',
+            pcaComp=ncomps)
+        train_pc <- predict(pre_process, df_train[, -dim(df_train)[2]])
+        model_fit <- train(
+            y=df_train[, dim(df_train)[2]],
+            x= train_pc,
+            method='rf',
+            ntree=ntrees
+            )
+        
+        test_pc <- predict(pre_process, df_test[, -dim(df_test)[2]])
+        test_outcome <- predict(model_fit, newdata=test_pc)
+        
+        n_corr <- length(which(test_outcome == df_test[, dim(df_test)[2]]))
+        
+        res <- rbind(res, c(trees=ntrees, comps=ncomps, corr=n_corr))
+
+        if (n_corr > n_best){
+            n_best <- n_corr
+            ntrees_best <- ntrees
+            ncomps_best <- ncomps
+            fit_best <- model_fit
+        }
+    }
+}
+
+print(paste('The best fit is ', n_corr / dim(df_test)[1] * 100, '% correct with ', ntrees_best, ' trees and ', ncomps_best, ' input components'))
+```
+So of the models tested the random forest model with 128 trees and 29 input components was shown to perform best with an out-of-sample error on the test set of only 2.6%.
+
+# Appendix A evaluation results
+
+The resulting algorithm is then used on the evaluation data to predict the quiz answers.
+
+```{r, eval=FALSE}
+pre_process <- preProcess(
+    df_train[, -dim(df_train)[2]-1],
+    method='pca',
+    pcaComp=ncomps_best)
+evaluate_pc <- predict(pre_process, df_evaluate[, -dim(df_evaluate)[2]])
+evaluate_outcome <- predict(fit_best, newdata=evaluate_pc)
+print(evaluate_outcome)
+
+```
+
+# Appendix B Exploratory data analysis
+In the exploratory data analysis it was seen that all components have 'normal' data ranges. There seems to be no need for the use of a log transform.
+
+```{r}
+for ( i in seq(1, dim(df_train)[2]-1, by=1)){
+    plot(
+        df_train[, dim(df_train)[2]],
+        df_train[, i],
+        xlab='Class',
+        ylab=colnames(df_train)[i],
+        main=paste('Exploration of ', colnames(df_train)[i])
+        )
+    }
+```

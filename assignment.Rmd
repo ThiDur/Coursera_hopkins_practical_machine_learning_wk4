@@ -100,13 +100,21 @@ for (ntrees in c(64, 128)){
 
 print(paste('The best fit is ', n_corr / dim(df_test)[1] * 100, '% correct with ', ntrees_best, ' trees and ', ncomps_best, ' input components'))
 ```
-So of the models tested the random forest model with 128 trees and 29 input components was shown to perform best with an out-of-sample error on the test set of only 2.6%.
+So of the models tested the random forest model with 128 trees and 29 input components was shown to perform best with an out-of-sample error on the test set of only 2.6%. The out of sample error is usually close to but slightly higher than the in sample error. The in sample error is shown to be 0% below.The out of sample error could therefore be expected to be around 2-3% (unless the algorithm is excessively overfitting which this algorithm through the low number of trees and the use of only a subset of PCA components is not).
+
+```{r}
+fit_outcome <- predict(fit_best, newdata=train_pc)
+expected_outcome <- df_train[, dim(df_train)[2]]
+in_sample_error <- 100 - length(which(expected_outcome == fit_outcome)) / length(fit_outcome) * 100
+print(paste('The in sample error is ', in_sample_error, '%'))
+```
+The quiz error (1 in 20) was also low as expected.
 
 # Appendix A evaluation results
 
 The resulting algorithm is then used on the evaluation data to predict the quiz answers.
 
-```{r, eval=FALSE}
+```{r}
 pre_process <- preProcess(
     df_train[, -dim(df_train)[2]-1],
     method='pca',
